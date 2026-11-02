@@ -1,6 +1,7 @@
 -- =====================================================================
--- [ANIME ADVENTURES] - AUTO FARM v3.3 (Auto Detect UUID & Hook)
--- Fixes: Quét UUID siêu sâu, Hook hàm spawn để tự động lấy UUID
+-- [ANIME ADVENTURES] - AUTO FARM v3.4 FINAL
+-- Bổ sung: Lấy UUID trực tiếp từ Server qua get_unit_game_replicator_data
+-- Đã cập nhật: 5 tọa độ đặt Unit mới
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -13,13 +14,13 @@ local MapID = "_lobbytemplategreen3"
 local LevelID = "namek_level_1"
 local Difficulty = "Normal"
 
--- Danh sách CFrame đặt vị trí unit
+-- ⭐ ĐÃ THAY 5 TỌA ĐỘ MỚI VÀO ĐÂY
 local PLACEMENT_CFRAMES = {
-    CFrame.new(-2944.945556640625, 91.806205749511719, -690.08197021484375),
-    CFrame.new(-2943.427978515625, 91.806205749511719, -692.01861572265625),
-    CFrame.new(-2946.0390625, 91.80621337890625, -692.96728515625),
-    CFrame.new(-2945.37353515625, 91.80621337890625, -694.9530029296875),
-    CFrame.new(-2943.212890625, 91.806205749511719, -695.11309814453125),
+    CFrame.new(-2940.76123046875, 91.806205749511719, -698.65972900390625),
+    CFrame.new(-2943.396240234375, 91.806205749511719, -691.01495361328125),
+    CFrame.new(-2939.017822265625, 91.806205749511719, -688.593994140625),
+    CFrame.new(-2937.63818359375, 91.806205749511719, -693.9427490234375),
+    CFrame.new(-2937.20751953125, 91.806205749511719, -697.93310546875),
 }
 
 -- ================= LẤY API =================
@@ -32,14 +33,15 @@ local function getRemote(path)
 end
 
 -- API Calls
-local api_join          = getRemote("endpoints.client_to_server.request_join_lobby")
-local api_lock          = getRemote("endpoints.client_to_server.request_lock_level")
-local api_start         = getRemote("endpoints.client_to_server.request_start_game")
-local api_vote          = getRemote("endpoints.client_to_server.vote_start")
-local api_vote_skip     = getRemote("endpoints.client_to_server.vote_wave_skip")
-local api_spawn         = getRemote("endpoints.client_to_server.spawn_unit")
-local api_upgrade       = getRemote("endpoints.client_to_server.upgrade_unit_ingame")
-local api_finished_vote = getRemote("endpoints.client_to_server.set_game_finished_vote")
+local api_join           = getRemote("endpoints.client_to_server.request_join_lobby")
+local api_lock           = getRemote("endpoints.client_to_server.request_lock_level")
+local api_start          = getRemote("endpoints.client_to_server.request_start_game")
+local api_vote           = getRemote("endpoints.client_to_server.vote_start")
+local api_vote_skip      = getRemote("endpoints.client_to_server.vote_wave_skip")
+local api_spawn          = getRemote("endpoints.client_to_server.spawn_unit")
+local api_upgrade        = getRemote("endpoints.client_to_server.upgrade_unit_ingame")
+local api_finished_vote  = getRemote("endpoints.client_to_server.set_game_finished_vote")
+local api_get_rep_data   = getRemote("endpoints.client_to_server.get_unit_game_replicator_data")
 
 -- Incoming Events
 local endpoints_s2c      = ReplicatedStorage:WaitForChild("endpoints"):WaitForChild("server_to_client")
@@ -125,89 +127,90 @@ local function ResetForNewGame()
     log("🔄 Đã reset state cho trận mới")
 end
 
--- ================= FETCH UUID (V3.3 NÂNG CẤP) =================
+-- ================= FETCH UUID (SERVER DATA SCANNER) =================
 local function FetchEquippedUnits()
     EquippedUUIDs = {}
     
-    -- Danh sách UUID của Quest (Dựa vào log của bạn để loại bỏ)
     local QuestUUIDs = {
         "{fde93845-7cc2-4069-8804-205457280c67}",
         "{b53907e6-260d-4d6b-9879-25775125e6b8}",
         "{201029bb-4532-4307-a6c0-b14ea2e2bf43}",
         "{27ad82f9-6fd3-49c3-b1c4-6723f3000068}"
     }
-
     local function isQuest(uuid)
-        for _, q in ipairs(QuestUUIDs) do
-            if q == uuid then return true end
-        end
+        for _, q in ipairs(QuestUUIDs) do if q == uuid then return true end end
         return false
     end
 
-    -- Quét đệ quy mọi ngóc ngách
-    local function scanObject(obj, depth)
-        if not obj or depth > 12 then return end
+    local function scanData(data, depth)
+        if depth > 15 or not data then return end
+        local dataType = type(data)
         
-        -- 1. Quét Tên, Giá trị (Value), và Chữ (Text)
-        local stringsToCheck = { obj.Name }
-        
-        if obj:IsA("StringValue") or obj:IsA("IntValue") or obj:IsA("NumberValue") then
-            table.insert(stringsToCheck, tostring(obj.Value))
-        elseif obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton") then
-            table.insert(stringsToCheck, tostring(obj.Text))
-        end
-        
-        -- Quét thêm Attributes
-        for _, v in pairs(obj:GetAttributes()) do
-            table.insert(stringsToCheck, tostring(v))
-        end
-
-        for _, str in ipairs(stringsToCheck) do
-            -- Regex tìm UUID (có ngoặc nhọn)
-            for uuid in string.gmatch(str, "({%x+%-%x+%-%x+%-%x+%-%x+})") do
+        if dataType == "string" then
+            for uuid in string.gmatch(data, "({%x+%-%x+%-%x+%-%x+%-%x+})") do
                 if not isQuest(uuid) and not table.find(EquippedUUIDs, uuid) then
                     table.insert(EquippedUUIDs, uuid)
                 end
             end
-        end
-        
-        -- Đệ quy xuống các object con
-        for _, child in ipairs(obj:GetChildren()) do
-            scanObject(child, depth + 1)
+        elseif dataType == "table" then
+            for k, v in pairs(data) do
+                scanData(k, depth + 1)
+                scanData(v, depth + 1)
+            end
         end
     end
 
-    -- Bắt đầu quét
-    pcall(function() scanObject(LocalPlayer.PlayerGui, 1) end)
-    pcall(function() scanObject(ReplicatedStorage, 1) end)
-    pcall(function() scanObject(workspace:FindFirstChild("_UNITS"), 1) end)
+    if api_get_rep_data then
+        local success, result = pcall(function()
+            return api_get_rep_data:InvokeServer()
+        end)
+        if success and result then
+            scanData(result, 1)
+        else
+            log("⚠️ Không thể gọi get_unit_game_replicator_data, thử quét UI dự phòng...")
+        end
+    end
 
     if #EquippedUUIDs == 0 then
-        log("⚠️ CẢNH BÁO: Không tìm thấy UUID nào tự động! Hãy tự tay đặt 1 unit trong game để script tự học UUID.")
-    else
-        log("✅ Đã tìm thấy " .. #EquippedUUIDs .. " UUID Unit (Đã lọc bỏ Quest):")
-        for i, id in ipairs(EquippedUUIDs) do
-            log("   ["..i.."] " .. id)
+        local function scanUI(obj, depth)
+            if not obj or depth > 10 then return end
+            local strings = { obj.Name }
+            if obj:IsA("StringValue") then table.insert(strings, tostring(obj.Value)) end
+            if obj:IsA("TextLabel") then table.insert(strings, tostring(obj.Text)) end
+            
+            for _, str in ipairs(strings) do
+                for uuid in string.gmatch(str, "({%x+%-%x+%-%x+%-%x+%-%x+})") do
+                    if not isQuest(uuid) and not table.find(EquippedUUIDs, uuid) then
+                        table.insert(EquippedUUIDs, uuid)
+                    end
+                end
+            end
+            for _, child in ipairs(obj:GetChildren()) do scanUI(child, depth + 1) end
         end
+        pcall(function() scanUI(LocalPlayer.PlayerGui, 1) end)
+    end
+
+    if #EquippedUUIDs == 0 then
+        log("❌ CẢNH BÁO: Không tìm thấy UUID nào! Hãy tự tay đặt 1 unit để Hook bắt lại.")
+    else
+        log("✅ Đã lấy thành công " .. #EquippedUUIDs .. " UUID Unit từ Server:")
+        for i, id in ipairs(EquippedUUIDs) do log("   ["..i.."] " .. id) end
     end
     
     hasFetchedUnits = true
 end
 
--- ================= HOOK API SPAWN (TỰ ĐỘNG HỌC UUID) =================
--- Nếu bạn tự tay đặt unit nào, script sẽ tự động thu thập UUID đó
+-- ================= HOOK SPAWN (Phòng hờ) =================
 if api_spawn and typeof(hookfunction) == "function" then
     local oldInvoke = hookfunction(api_spawn.InvokeServer, function(self, uuid, cframe)
         if type(uuid) == "string" and string.match(uuid, "^{%x+%-%x+%-%x+%-%x+%-%x+}$") then
             if not table.find(EquippedUUIDs, uuid) then
                 table.insert(EquippedUUIDs, uuid)
-                log("🎯 Hook thành công! Đã học được UUID Unit mới: " .. uuid)
+                log("🎯 Đã tự học UUID từ lệnh đặt tay: " .. uuid)
             end
         end
         return oldInvoke(self, uuid, cframe)
     end)
-else
-    log("⚠️ Executor không hỗ trợ hookfunction. Sẽ dùng phương pháp quét UI.")
 end
 
 -- ================= LOBBY =================
@@ -222,9 +225,7 @@ local function HandleLobby()
         pcall(function() api_start:InvokeServer(MapID) end)
 
         local t0 = os.clock()
-        while game.PlaceId == startPlaceId and (os.clock() - t0) < 15 do
-            task.wait(0.5)
-        end
+        while game.PlaceId == startPlaceId and (os.clock() - t0) < 15 do task.wait(0.5) end
         isInLobbyState = false
     end)
 end
@@ -237,15 +238,11 @@ ev_start_vote_skip.OnClientEvent:Connect(function()
 end)
 
 ev_show_message.OnClientEvent:Connect(function(msg, typeMsg)
-    if msg == "Not enough money!" then
-        moneyBlockTime = os.clock() + 3
-    end
+    if msg == "Not enough money!" then moneyBlockTime = os.clock() + 3 end
 end)
 
 ev_unit_spawned.OnClientEvent:Connect(function(unit)
-    if isEnemyUnit(unit) and isGameFinished then
-        ResetForNewGame()
-    end
+    if isEnemyUnit(unit) and isGameFinished then ResetForNewGame() end
 end)
 
 ev_game_finished.OnClientEvent:Connect(function(data)
@@ -258,12 +255,10 @@ ev_game_finished.OnClientEvent:Connect(function(data)
 end)
 
 ev_vote_replay.OnClientEvent:Connect(function(current, needed)
-    current = tonumber(current) or 0
-    needed  = tonumber(needed) or 0
-    log(string.format("🗳️ Trạng thái Vote Replay: %d/%d", current, needed))
+    log(string.format("🗳️ Trạng thái Vote Replay: %d/%d", tonumber(current) or 0, tonumber(needed) or 0))
 end)
 
--- ================= SMART SPAWN (CẬP NHẬT LOGIC CHỐNG KẸT) =================
+-- ================= SMART SPAWN =================
 local function SmartSpawn()
     if os.clock() - lastSpawnTime < 1.5 then return end
     if os.clock() < moneyBlockTime then return end
@@ -271,10 +266,8 @@ local function SmartSpawn()
     if not api_spawn or #EquippedUUIDs == 0 then return end
 
     lastSpawnTime = os.clock()
+    local targetCFrame, cframeIndex = nil, nil
     
-    -- Tìm CFrame trống
-    local targetCFrame = nil
-    local cframeIndex = nil
     for i = 1, #PLACEMENT_CFRAMES do
         if not placementCooldowns[i] or (os.clock() - placementCooldowns[i]) > 5 then
             targetCFrame = PLACEMENT_CFRAMES[i]
@@ -282,31 +275,22 @@ local function SmartSpawn()
             break
         end
     end
-    
     if not targetCFrame then return end
     
-    -- Lấy UUID (xoay vòng)
     local uuid = EquippedUUIDs[(currentPlaceIndex - 1) % #EquippedUUIDs + 1]
+    local ok, result = pcall(function() return api_spawn:InvokeServer(uuid, targetCFrame) end)
     
-    local ok, result = pcall(function()
-        return api_spawn:InvokeServer(uuid, targetCFrame)
-    end)
-    
-    -- Luôn tăng index để tránh kẹt ở một UUID bị lỗi
     currentPlaceIndex = currentPlaceIndex + 1 
-    
     if ok and result == true then
         placementCooldowns[cframeIndex] = nil
     else
-        -- Nếu lỗi, đưa CFrame đó vào cooldown và thử UUID tiếp theo ở vòng lặp sau
         placementCooldowns[cframeIndex] = os.clock()
     end
 end
 
 -- ================= SMART UPGRADE =================
 local function SmartUpgrade()
-    if os.clock() - lastUpgradeTime < 2 then return end
-    if os.clock() < moneyBlockTime then return end
+    if os.clock() - lastUpgradeTime < 2 or os.clock() < moneyBlockTime then return end
     lastUpgradeTime = os.clock()
     if not api_upgrade then return end
 
@@ -315,45 +299,30 @@ local function SmartUpgrade()
 
     for _, u in ipairs(folder:GetChildren()) do
         if u:IsA("Model") and not isEnemyUnit(u) and isMyUnit(u) then
-            local ok = pcall(function()
-                return api_upgrade:InvokeServer(u)
-            end)
+            local ok = pcall(function() return api_upgrade:InvokeServer(u) end)
             task.wait(0.15)
             if not ok then break end
         end
     end
 end
 
--- ================= VOTE START =================
+-- ================= VOTE START / REPLAY =================
 local function TryVoteStart()
-    if hasVotedStart or not api_vote then return end
-    if os.clock() - lastVoteStartAttempt < 2 then return end
+    if hasVotedStart or not api_vote or (os.clock() - lastVoteStartAttempt < 2) then return end
     lastVoteStartAttempt = os.clock()
-
     local ok, result = pcall(function() return api_vote:InvokeServer() end)
-    if ok and result == true then
-        hasVotedStart = true
-        log("✅ Đã gửi Vote Start thành công.")
-    end
+    if ok and result == true then hasVotedStart = true end
 end
 
--- ================= VOTE REPLAY =================
 local function TryReplayVote()
-    if not isGameFinished or replayVoted then return end
-    if os.clock() - lastVoteAttempt < 2 then return end
+    if not isGameFinished or replayVoted or (os.clock() - lastVoteAttempt < 2) then return end
     lastVoteAttempt = os.clock()
 
-    if replayAttempts >= REPLAY_MAX_ATTEMPTS then
-        log("⏱️ Vote replay timeout. Force reset state.")
-        ResetForNewGame()
-        return
-    end
-
+    if replayAttempts >= REPLAY_MAX_ATTEMPTS then ResetForNewGame() return end
     replayAttempts = replayAttempts + 1
     local ok, result = pcall(function() return api_finished_vote:InvokeServer("replay") end)
-
     if ok and result == true then
-        replayVoted    = true
+        replayVoted = true
         replayAttempts = 0
         log("✅ Đã bỏ phiếu Replay thành công!")
     end
@@ -369,8 +338,7 @@ task.spawn(function()
         else
             if not hasFetchedUnits then
                 FetchEquippedUnits()
-                task.wait(2) -- Đợi 2s để UI load xong mới quét lại nếu chưa thấy
-                if #EquippedUUIDs == 0 then hasFetchedUnits = false end
+                task.wait(1)
             end
 
             SmartSpawn()
@@ -380,12 +348,12 @@ task.spawn(function()
 
             if not _dbg or os.clock() - _dbg > 15 then
                 _dbg = os.clock()
-                log(string.format("[TRẠNG THÁI] Units=%d | Finished=%s | Voted=%s | ReplayAttempts=%d",
-                    CountPlayerUnits(), tostring(isGameFinished), tostring(replayVoted), replayAttempts))
+                log(string.format("[TRẠNG THÁI] Units=%d | Finished=%s | Voted=%s",
+                    CountPlayerUnits(), tostring(isGameFinished), tostring(replayVoted)))
             end
         end
         task.wait(1)
     end
 end)
 
-log("🚀 Khởi chạy thành công Auto Farm v3.3 (Auto Detect UUID & Hook)!")
+log("🚀 Khởi chạy thành công Auto Farm v3.4 (Cập nhật tọa độ mới)!")
