@@ -1,7 +1,6 @@
 -- =====================================================================
 -- [ANIME ADVENTURES] - AUTO FARM v3.4 FINAL
 -- Bổ sung: Lấy UUID trực tiếp từ Server qua get_unit_game_replicator_data
--- Đã cập nhật: 5 tọa độ đặt Unit mới
 -- =====================================================================
 
 local Players = game:GetService("Players")
@@ -14,13 +13,12 @@ local MapID = "_lobbytemplategreen3"
 local LevelID = "namek_level_1"
 local Difficulty = "Normal"
 
--- ⭐ ĐÃ THAY 5 TỌA ĐỘ MỚI VÀO ĐÂY
 local PLACEMENT_CFRAMES = {
-    CFrame.new(-2940.76123046875, 91.806205749511719, -698.65972900390625),
-    CFrame.new(-2943.396240234375, 91.806205749511719, -691.01495361328125),
-    CFrame.new(-2939.017822265625, 91.806205749511719, -688.593994140625),
-    CFrame.new(-2937.63818359375, 91.806205749511719, -693.9427490234375),
-    CFrame.new(-2937.20751953125, 91.806205749511719, -697.93310546875),
+    CFrame.new(-2944.945556640625, 91.806205749511719, -690.08197021484375),
+    CFrame.new(-2943.427978515625, 91.806205749511719, -692.01861572265625),
+    CFrame.new(-2946.0390625, 91.80621337890625, -692.96728515625),
+    CFrame.new(-2945.37353515625, 91.80621337890625, -694.9530029296875),
+    CFrame.new(-2943.212890625, 91.806205749511719, -695.11309814453125),
 }
 
 -- ================= LẤY API =================
@@ -41,6 +39,7 @@ local api_vote_skip      = getRemote("endpoints.client_to_server.vote_wave_skip"
 local api_spawn          = getRemote("endpoints.client_to_server.spawn_unit")
 local api_upgrade        = getRemote("endpoints.client_to_server.upgrade_unit_ingame")
 local api_finished_vote  = getRemote("endpoints.client_to_server.set_game_finished_vote")
+-- ⭐ API MỚI ĐƯỢC THÊM VÀO
 local api_get_rep_data   = getRemote("endpoints.client_to_server.get_unit_game_replicator_data")
 
 -- Incoming Events
@@ -131,6 +130,7 @@ end
 local function FetchEquippedUnits()
     EquippedUUIDs = {}
     
+    -- Danh sách UUID Quest cần bỏ qua
     local QuestUUIDs = {
         "{fde93845-7cc2-4069-8804-205457280c67}",
         "{b53907e6-260d-4d6b-9879-25775125e6b8}",
@@ -142,17 +142,20 @@ local function FetchEquippedUnits()
         return false
     end
 
+    -- Hàm quét đệ quy bóc tách UUID từ bất kỳ Table hay String nào
     local function scanData(data, depth)
         if depth > 15 or not data then return end
         local dataType = type(data)
         
         if dataType == "string" then
+            -- Tìm chuỗi có dạng {UUID}
             for uuid in string.gmatch(data, "({%x+%-%x+%-%x+%-%x+%-%x+})") do
                 if not isQuest(uuid) and not table.find(EquippedUUIDs, uuid) then
                     table.insert(EquippedUUIDs, uuid)
                 end
             end
         elseif dataType == "table" then
+            -- Quét cả Key và Value của bảng
             for k, v in pairs(data) do
                 scanData(k, depth + 1)
                 scanData(v, depth + 1)
@@ -160,17 +163,19 @@ local function FetchEquippedUnits()
         end
     end
 
+    -- 1. GỌI TRỰC TIẾP LÊN SERVER (Cách chuẩn xác nhất)
     if api_get_rep_data then
         local success, result = pcall(function()
             return api_get_rep_data:InvokeServer()
         end)
         if success and result then
-            scanData(result, 1)
+            scanData(result, 1) -- Quét dữ liệu Server trả về
         else
             log("⚠️ Không thể gọi get_unit_game_replicator_data, thử quét UI dự phòng...")
         end
     end
 
+    -- 2. NẾU SERVER KHÔNG TRẢ VỀ -> QUÉT UI (Dự phòng)
     if #EquippedUUIDs == 0 then
         local function scanUI(obj, depth)
             if not obj or depth > 10 then return end
@@ -200,7 +205,7 @@ local function FetchEquippedUnits()
     hasFetchedUnits = true
 end
 
--- ================= HOOK SPAWN (Phòng hờ) =================
+-- ================= HOOK SPAWN (Phòng hờ trường hợp không tìm thấy) =================
 if api_spawn and typeof(hookfunction) == "function" then
     local oldInvoke = hookfunction(api_spawn.InvokeServer, function(self, uuid, cframe)
         if type(uuid) == "string" and string.match(uuid, "^{%x+%-%x+%-%x+%-%x+%-%x+}$") then
@@ -356,4 +361,4 @@ task.spawn(function()
     end
 end)
 
-log("🚀 Khởi chạy thành công Auto Farm v3.4 (Cập nhật tọa độ mới)!")
+log("🚀 Khởi chạy thành công Auto Farm v3.4 (Server Data Direct Fetch)!")
